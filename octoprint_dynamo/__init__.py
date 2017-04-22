@@ -10,7 +10,9 @@ import octoprint_dynamo.dbclient as dbclient
 SETTINGS_DEFAULTS = {
     'awsIamUserKey': os.getenv('AWS_IAM_USER_KEY', ''),
     'awsIamUserSecret': os.getenv('AWS_IAM_USER_SECRET', ''),
-    'awsDynamoDbTableArn': os.getenv('AWS_DYNAMO_DB_TABLE_ARN', '')
+    'awsDynamoDbTableArn': os.getenv('AWS_DYNAMO_DB_TABLE_ARN', ''),
+    'awsDynamoDbPrimaryKey': 'Key',
+    'awsDynamoDbValue': 'Value'
 }
 
 
@@ -41,18 +43,20 @@ class DynamoPlugin(
         self._update_printer_state({'progress': progress})
 
     def on_event(self, event, payload):
-        if event == 'PrintStarted': pass
+        if event == 'PrintStarted':
             self._update_printer_state({'printState': 'started'})
-        elif event == 'PrintFailed': pass
+        elif event == 'PrintFailed':
             self._update_printer_state({'printState': 'failed'})
-        elif event == 'PrintDone': pass
+        elif event == 'PrintDone':
             self._update_printer_state({'printState': 'done'})
-        elif event == 'PrintCancelled': pass
+        elif event == 'PrintCancelled':
             self._update_printer_state({'printState': 'cancelled'})
-        elif event == 'PrintFailed': pass
-            self._update_printer_state({'printState': 'failed'})
-        elif event == 'Paused': pass
+        elif event == 'Paused':
             self._update_printer_state({'printState': 'paused'})
+        elif event == 'ClientOpen':
+            self._update_printer_state({'lastClient': payload.get('remoteAddress', '')})
+        elif event == 'Upload':
+            self._update_printer_state({'lastUpload': payload.get('name', '')})
         else:
             self._logger.debug("ignoring event %r: %r", event, payload)
             return
@@ -81,7 +85,8 @@ class DynamoPlugin(
         s = self._get_settings_dict()
         client = dbclient.DBClient(
             s['awsDynamoDbTableArn'],
-            primary_key='Key',
+            primary_key=s['awsDynamoDbPrimaryKey'],
+            value_key=s['awsDynamoDbValue'],
             access_key=s['awsIamUserKey'],
             access_secret=s['awsIamUserSecret'],
             logger=self._logger

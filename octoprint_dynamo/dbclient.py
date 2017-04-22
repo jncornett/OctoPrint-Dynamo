@@ -18,18 +18,24 @@ def parse_dynamodb_arn(arn):
 
 
 class DBClient(object):
-    def __init__(self, arn, primary_key='Key',
+    def __init__(self, arn,
+            primary_key='Key', value_key='Value',
             access_key=None, access_secret=None, logger=None):
+
         if logger is None:
             logger = logging.getLogger(__name__)
         self._logger = logger.getChild(self.__class__.__name__)
+
         self.primary_key = primary_key
+        self.value_key = value_key
+
         try:
             region_name, table_name = parse_dynamodb_arn(arn)
         except ValueError as e:
             self._logger.error(e)
             raise
         self.table_name = table_name
+
         self._client = boto3.client(
             'dynamodb',
             region_name=region_name,
@@ -51,7 +57,7 @@ class DBClient(object):
                 'PutRequest': {
                     'Item': {
                         self.primary_key: {'S': key},
-                        'Value': value_map
+                        self.value_key: value_map
                     }
                 }
             })

@@ -1,72 +1,96 @@
 # coding=utf-8
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 
-### (Don't forget to remove me)
-# This is a basic skeleton for your plugin's __init__.py. You probably want to adjust the class name of your plugin
-# as well as the plugin mixins it's subclassing from. This is really just a basic skeleton to get you started,
-# defining your plugin as a template plugin, settings and asset plugin. Feel free to add or remove mixins
-# as necessary.
-#
-# Take a look at the documentation on what other plugin mixins are available.
+import os
 
 import octoprint.plugin
 
-class DynamoPlugin(octoprint.plugin.SettingsPlugin,
-                   octoprint.plugin.AssetPlugin,
-                   octoprint.plugin.TemplatePlugin):
+import octoprint_dynamo.dbclient as dbclient
 
-	##~~ SettingsPlugin mixin
-
-	def get_settings_defaults(self):
-		return dict(
-			# put your plugin's default settings here
-		)
-
-	##~~ AssetPlugin mixin
-
-	def get_assets(self):
-		# Define your plugin's asset files to automatically include in the
-		# core UI here.
-		return dict(
-			js=["js/dynamo.js"],
-			css=["css/dynamo.css"],
-			less=["less/dynamo.less"]
-		)
-
-	##~~ Softwareupdate hook
-
-	def get_update_information(self):
-		# Define the configuration for your plugin to use with the Software Update
-		# Plugin here. See https://github.com/foosel/OctoPrint/wiki/Plugin:-Software-Update
-		# for details.
-		return dict(
-			dynamo=dict(
-				displayName="Dynamo Plugin",
-				displayVersion=self._plugin_version,
-
-				# version check: github repository
-				type="github_release",
-				user="jncornett",
-				repo="OctoPrint-Dynamo",
-				current=self._plugin_version,
-
-				# update method: pip
-				pip="https://github.com/jncornett/OctoPrint-Dynamo/archive/{target_version}.zip"
-			)
-		)
+SETTINGS_DEFAULTS = {
+    'awsIamUserKey': os.getenv('AWS_IAM_USER_KEY', ''),
+    'awsIamUserSecret': os.getenv('AWS_IAM_USER_SECRET', ''),
+    'awsDynamoDbTableArn': os.getenv('AWS_DYNAMO_DB_TABLE_ARN', '')
+}
 
 
-# If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
-# ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
-# can be overwritten via __plugin_xyz__ control properties. See the documentation for that.
+class DynamoPlugin(
+    octoprint.plugin.EventHandlerPlugin,
+    octoprint.plugin.ProgressPlugin,
+    octoprint.plugin.StartupPlugin,
+    octoprint.plugin.SettingsPlugin,
+    octoprint.plugin.TemplatePlugin
+):
+    def on_after_startup(self):
+        if self._validate_settings():
+            self._logger.info("plugin is correctly configured")
+            self._logger.info("table ARN: %s", self._settings.get(["awsDynamoDbTableArn"]))
+        else:
+            self._logger.error("plugin is not correctly configured")
+
+    def get_settings_defaults(self):
+        return self._get_settings_defaults()
+
+    def get_template_vars(self):
+        return self._get_settings_dict()
+
+    def get_template_configs(self):
+        return [{ 'type': 'settings', 'custom_bindings': False }]
+
+    def on_print_progress(self, storage, path, progress):
+        self._update_printer_state({'progress': progress})
+
+    def on_event(self, event, payload):
+        if event == 'PrintStarted': pass
+            self._update_printer_state({'printState': 'started'})
+        elif event == 'PrintFailed': pass
+            self._update_printer_state({'printState': 'failed'})
+        elif event == 'PrintDone': pass
+            self._update_printer_state({'printState': 'done'})
+        elif event == 'PrintCancelled': pass
+            self._update_printer_state({'printState': 'cancelled'})
+        elif event == 'PrintFailed': pass
+            self._update_printer_state({'printState': 'failed'})
+        elif event == 'Paused': pass
+            self._update_printer_state({'printState': 'paused'})
+        else:
+            self._logger.debug("ignoring event %r: %r", event, payload)
+            return
+
+        self._logger.info("handled event %r: %r", event, payload)
+
+    def _validate_settings(self):
+        required_keys = set(self._get_settings_defaults())  # for now, all keys are required
+        warning_messages = []
+        for key in required_keys:
+            if not self._settings.get([key]):
+                warning_messages.append("{!r} not set".format(key))
+
+        for message in warning_messages:
+            self._logger.warn(message)
+
+        return len(warning_messages) == 0
+
+    def _get_settings_defaults(self):
+        return SETTINGS_DEFAULTS.copy()
+
+    def _get_settings_dict(self):
+        return {key: self._settings.get([key]) for key in self._get_settings_defaults()}
+
+    def _update_printer_state(self, data):
+        s = self._get_settings_dict()
+        client = dbclient.DBClient(
+            s['awsDynamoDbTableArn'],
+            primary_key='Key',
+            access_key=s['awsIamUserKey'],
+            access_secret=s['awsIamUserSecret'],
+            logger=self._logger
+        )
+        client.batch_write(data)
+
+
 __plugin_name__ = "Dynamo Plugin"
 
 def __plugin_load__():
-	global __plugin_implementation__
-	__plugin_implementation__ = DynamoPlugin()
-
-	global __plugin_hooks__
-	__plugin_hooks__ = {
-		"octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
-	}
-
+    global __plugin_implementation__
+    __plugin_implementation__ = DynamoPlugin()

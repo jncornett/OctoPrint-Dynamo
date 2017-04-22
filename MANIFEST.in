@@ -1,0 +1,4 @@
+include README.md
+recursive-include octoprint_dynamo/templates *
+recursive-include octoprint_dynamo/translations *
+recursive-include octoprint_dynamo/static *
